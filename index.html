@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <title>Kassa</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f8f8f8; margin: 0; padding: 0; }
+        .container { max-width: 700px; margin: 40px auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        table, th, td { border: 1px solid #ccc; }
+        th, td { padding: 10px; text-align: center; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-success { background: #2ecc71; color: white; }
+        .btn-primary { background: #3498db; color: white; }
+        .total { margin-top: 10px; text-align: right; font-size: 18px; font-weight: bold; }
+        .barcode-input { width: 100%; padding: 15px; font-size: 16px; border: 2px solid #ddd; border-radius: 5px; }
+        .payment-options { margin: 20px 0; }
+        .payment-options label { margin-right: 20px; }
+        .receipt { display: none; }
+        @media print {
+            .no-print { display: none !important; }
+            .receipt { display: block !important; }
+            body { background: white; }
+            .container { box-shadow: none; margin: 0; }
+        }
+        .receipt-header { text-align: center; margin-bottom: 20px; }
+        .receipt-items { margin: 20px 0; }
+        .receipt-total { border-top: 2px solid #000; padding-top: 10px; margin-top: 20px; }
+        .receipt-footer { text-align: center; margin-top: 30px; font-size: 12px; }
+    </style>
+</head>
+<body>
+<div class="container no-print">
+    <h2>🛒 Kassa</h2>
+    <input type="text" id="barcode" class="barcode-input" placeholder="Shtrix-kodni skanerlash..." autofocus>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Mahsulot</th>
+                <th>Narx</th>
+                <th>Soni</th>
+                <th>Jami</th>
+                <th>Amal</th>
+            </tr>
+        </thead>
+        <tbody id="cart-body">
+            <tr><td colspan="5">Yuklanmoqda...</td></tr>
+        </tbody>
+    </table>
+
+    <div class="total">
+        Jami: <span id="total">0 so'm</span>
+    </div>
+
+    <div class="payment-options">
+        <label><input type="radio" name="payment_type" value="cash" checked> Naqd</label>
+        <label><input type="radio" name="payment_type" value="card"> Karta</label>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <button id="clear-btn" class="btn btn-danger">Sotuvni bekor qilish</button>
+        <button id="checkout-btn" class="btn btn-success">Sotuvni yakunlash</button>
+        <button id="print-btn" class="btn btn-primary">Chek chop etish</button>
+    </div>
+</div>
+
+<!-- Receipt Template (Hidden) -->
+<div class="receipt" id="receipt">
+    <div class="receipt-header">
+        <h2>🛒 POS System</h2>
+        <p>Chek №: <span id="receipt-id"></span></p>
+        <p>Sana: <span id="receipt-date"></span></p>
+        <p>Vaqt: <span id="receipt-time"></span></p>
+    </div>
+    
+    <div class="receipt-items" id="receipt-items">
+        <!-- Items will be populated here -->
+    </div>
+    
+    <div class="receipt-total">
+        <h3>Jami: <span id="receipt-total"></span></h3>
+        <p>To'lov turi: <span id="receipt-payment"></span></p>
+    </div>
+    
+    <div class="receipt-footer">
+        <p>Rahmat! Qaytib keling!</p>
+        <p>Tel: +998 90 123 45 67</p>
+    </div>
+</div>
+
+<script>
+let currentCart = [];
+let currentTotal = 0;
+let currentPaymentType = 'cash';
+
+function loadCart() {
+    $.get("api.php?action=get_cart", function(res){
+        if (res.status === 'success') {
+            currentCart = res.cart;
+            currentTotal = res.total;
+            
+            const body = res.cart.length ? res.cart.map(item => `
+                <tr>
+                    <td>${item.name}</td>
+                    <td>${item.price} so'm</td>
+                    <td>${item.quantity}</td>
+                    <td>${item.price * item.quantity} so'm</td>
+                    <td><button onclick="removeItem(${item.product_id})">❌</button></td>
+                </tr>
+            `).join('') : '<tr><td colspan="5">Savat bo\'sh</td></tr>';
+            $('#cart-body').html(body);
+            $('#total').text(res.total + ' so\'m');
+        } else {
+            alert("Xatolik: " + res.message);
+        }
+    }).fail(function(xhr){
+        alert("Savatchani yuklashda xato: " + xhr.responseText);
+    });
+}
+
+function removeItem(id) {
+    $.post("api.php", { action: 'remove_from_cart', id: id }, function(res){
+        if(res.status === 'success') loadCart();
+    });
+}
+
+function printReceipt() {
+    if (currentCart.length === 0) {
+        alert("Chop etish uchun mahsulotlar kerak!");
+        return;
+    }
+    
+    // Populate receipt
+    const now = new Date();
+    $('#receipt-id').text('R' + Date.now());
+    $('#receipt-date').text(now.toLocaleDateString('uz-UZ'));
+    $('#receipt-time').text(now.toLocaleTimeString('uz-UZ'));
+    
+    const itemsHtml = currentCart.map(item => `
+        <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+            <span>${item.name} x${item.quantity}</span>
+            <span>${item.price * item.quantity} so'm</span>
+        </div>
+    `).join('');
+    
+    $('#receipt-items').html(itemsHtml);
+    $('#receipt-total').text(currentTotal + ' so\'m');
+    $('#receipt-payment').text(currentPaymentType === 'cash' ? 'Naqd' : 'Karta');
+    
+    // Print
+    window.print();
+}
+
+$(document).ready(function(){
+    loadCart();
+
+    // Barcode scanner optimization
+    $('#barcode').on('keypress', function(e){
+        if(e.which === 13){
+            const barcode = $(this).val();
+            if (barcode.trim()) {
+                $.post("api.php", { action: 'add_to_cart', barcode: barcode }, function(res){
+                    if(res.status === 'success'){
+                        $('#barcode').val('').focus();
+                        loadCart();
+                    } else {
+                        alert(res.message);
+                        $('#barcode').focus();
+                    }
+                });
+            }
+        }
+    });
+
+    // Keep focus on barcode input
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#barcode').length) {
+            $('#barcode').focus();
+        }
+    });
+
+    $('#checkout-btn').click(function(){
+        if (currentCart.length === 0) {
+            alert("Savatcha bo'sh!");
+            return;
+        }
+        
+        currentPaymentType = $('input[name=payment_type]:checked').val();
+        $.post("api.php", { action: 'checkout', payment_type: currentPaymentType }, function(res){
+            if(res.status === 'success'){
+                alert("Sotuv yakunlandi! Jami: " + res.total + " so'm");
+                printReceipt();
+                loadCart();
+            } else {
+                alert(res.message);
+            }
+        });
+    });
+
+    $('#clear-btn').click(function(){
+        if (confirm("Savatchani tozalashni xohlaysizmi?")) {
+            $.get("api.php?action=clear_cart", function(){
+                loadCart();
+            });
+        }
+    });
+
+    $('#print-btn').click(function(){
+        printReceipt();
+    });
+
+    // Payment type change
+    $('input[name=payment_type]').change(function(){
+        currentPaymentType = $(this).val();
+    });
+});
+</script>
+</body>
+</html>
